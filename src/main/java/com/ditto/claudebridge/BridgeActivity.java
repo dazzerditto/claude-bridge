@@ -9,6 +9,11 @@ public class BridgeActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         String claude = "com.anthropic.claude";
+
+        // Tell the accessibility service to tap the voice button
+        VoiceTapService.pending = true;
+        VoiceTapService.pendingSince = System.currentTimeMillis();
+
         Intent assist = new Intent(Intent.ACTION_ASSIST);
         assist.setPackage(claude);
         assist.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
