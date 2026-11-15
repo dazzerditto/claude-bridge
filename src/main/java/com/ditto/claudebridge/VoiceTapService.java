@@ -1,4 +1,3 @@
-package com.ditto.claudebridge;
 import android.accessibilityservice.AccessibilityService;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,24 +17,32 @@ public class VoiceTapService extends AccessibilityService {
         attempt(0, false);
     }
 
-    private void attempt(int tries, boolean triedNewChat) {
-        if (tries > 30) return;
+    // Phase 1: tap "new chat". Phase 2: tap voice.
+    private void attempt(int tries, boolean newChatDone) {
+        if (tries > 40) return;                       // ~8 s, give up
         AccessibilityNodeInfo root = getRootInActiveWindow();
-        boolean nc = triedNewChat;
+        boolean done = newChatDone;
         if (root != null && "com.anthropic.claude".contentEquals(root.getPackageName())) {
-            if (clickByDesc(root, "voice")) return;
-            if (tries > 10 && !nc) {
-                nc = clickByDesc(root, "new chat");
+            if (!done) {
+                if (clickByDesc(root, "new chat")) {
+                    done = true;                      // wait for new chat to load
+                } else if (tries > 8) {
+                    done = true;                      // no button: already on a new chat
+                }
+            } else if (clickByDesc(root, "voice")) {
+                return;                               // in voice, finished
             }
         }
-        final boolean f = nc;
-        h.postDelayed(() -> attempt(tries + 1, f), 200);
+        final boolean d = done;
+        h.postDelayed(() -> attempt(tries + 1, d), 200);
     }
 
     private boolean clickByDesc(AccessibilityNodeInfo n, String word) {
         if (n == null) return false;
         CharSequence d = n.getContentDescription();
-        if (d != null && d.toString().toLowerCase().contains(word)) {
+        CharSequence t = n.getText();
+        String s = ((d != null ? d : "") + " " + (t != null ? t : "")).toLowerCase();
+        if (s.contains(word)) {
             AccessibilityNodeInfo c = n;
             while (c != null && !c.isClickable()) c = c.getParent();
             if (c != null) return c.performAction(AccessibilityNodeInfo.ACTION_CLICK);
