@@ -1,46 +1,43 @@
-package com.ditto.claudebridge;
-
-import android.accessibilityservice.AccessibilityService;
-import android.view.accessibility.AccessibilityEvent;
-import android.view.accessibility.AccessibilityNodeInfo;
-
+// VoiceTapService.java — keeps looking for the voice button, then taps it
 public class VoiceTapService extends AccessibilityService {
+    private final Handler h = new Handler(Looper.getMainLooper());
+    private long handledTime = 0;
 
-    public static volatile boolean pending = false;
-    public static volatile long pendingSince = 0L;
-    private static final String CLAUDE_PKG = "com.anthropic.claude";
-    private static final String[] KEYWORDS = {"voice", "start voice", "voice mode"};
+    @Override public void onAccessibilityEvent(AccessibilityEvent e) {
+        long req = getSharedPreferences(AssistActivity.PREFS, MODE_PRIVATE)
+                       .getLong("requestTime", 0);
+        if (req == 0 || req == handledTime) return;
+        if (System.currentTimeMillis() - req > 6000) return;
+        handledTime = req;
+        attempt(0, false);
+    }
 
-    @Override
-    public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (!pending) return;
-        if (System.currentTimeMillis() - pendingSince > 10000) { pending = false; return; }
-        if (event == null || event.getPackageName() == null) return;
-        if (!CLAUDE_PKG.equals(event.getPackageName().toString())) return;
+    private void attempt(int tries, boolean triedNewChat) {
+        if (tries > 30) return;                                  // ~6 s, give up
         AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return;
-        AccessibilityNodeInfo node = findVoiceButton(root);
-        while (node != null && !node.isClickable()) node = node.getParent();
-        if (node != null && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-            pending = false;
+        boolean nc = triedNewChat;
+        if (root != null && "com.anthropic.claude".contentEquals(root.getPackageName())) {
+            if (clickByDesc(root, "voice")) return;              // done
+            if (tries > 10 && !nc) {                             // still an old chat? force new
+                nc = clickByDesc(root, "new chat");
+            }
         }
+        final boolean f = nc;
+        h.postDelayed(() -> attempt(tries + 1, f), 200);
     }
 
-    private AccessibilityNodeInfo findVoiceButton(AccessibilityNodeInfo node) {
-        String desc = node.getContentDescription() == null ? "" : node.getContentDescription().toString().toLowerCase();
-        String text = node.getText() == null ? "" : node.getText().toString().toLowerCase();
-        for (String k : KEYWORDS) {
-            if (desc.contains(k) || text.contains(k)) return node;
+    private boolean clickByDesc(AccessibilityNodeInfo n, String word) {
+        if (n == null) return false;
+        CharSequence d = n.getContentDescription();
+        if (d != null && d.toString().toLowerCase().contains(word)) {
+            AccessibilityNodeInfo c = n;
+            while (c != null && !c.isClickable()) c = c.getParent();
+            if (c != null) return c.performAction(AccessibilityNodeInfo.ACTION_CLICK);
         }
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            if (child == null) continue;
-            AccessibilityNodeInfo found = findVoiceButton(child);
-            if (found != null) return found;
-        }
-        return null;
+        for (int i = 0; i < n.getChildCount(); i++)
+            if (clickByDesc(n.getChild(i), word)) return true;
+        return false;
     }
 
-    @Override
-    public void onInterrupt() {}
+    @Override public void onInterrupt() {}
 }
